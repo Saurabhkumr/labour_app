@@ -1,103 +1,190 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:service_app/pages/electrician_page.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // Add for authentication
+import 'package:service_app/pages/providers_page.dart';
 
-class HomePage extends StatefulWidget {
-  const HomePage({super.key});
-
+class ServicesPage extends StatefulWidget {
   @override
-  State<HomePage> createState() => _HomePageState();
+  _ServicesPageState createState() => _ServicesPageState();
 }
 
-class _HomePageState extends State<HomePage> {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+class _ServicesPageState extends State<ServicesPage> {
+  final List<Map<String, String>> services = [
+    {"name": "Plumber"},
+    {"name": "Cleaner"},
+    {"name": "Electrician"},
+    // Add more services
+  ];
 
-  // Function to handle logout
-  void signUserOut() {
-    _auth.signOut();
-    Navigator.of(context)
-        .pushReplacementNamed('/login'); // Optional: Navigate to login page
+  String? firstName;
+
+  @override
+  void initState() {
+    super.initState();
+    // Request permission and fetch location when the page is built
+    _requestLocationPermission(context);
+
+    // Fetch the user's name from Firebase
+    _fetchUserName();
   }
 
-  // Service Items List
-  final List<Map<String, dynamic>> services = [
-    {
-      'title': 'Electrician',
-      'icon': Icons.electrical_services,
-      'color': Colors.blue,
-      'page': ElectricianPage()
-    },
-    {
-      'title': 'Plumber',
-      'icon': Icons.plumbing,
-      'color': Colors.green,
-      // 'page': PlumberPage()
-    },
-    {
-      'title': 'Carpenter',
-      'icon': Icons.handyman,
-      'color': Colors.orange,
-      // 'page': CarpenterPage()
-    },
-    {
-      'title': 'Car Mechanic',
-      'icon': Icons.car_repair,
-      'color': Colors.red,
-      // 'page': CarMechanicPage()
-    },
-    // Add more services here if needed
-  ];
+  Future<void> _fetchUserName() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        // Fetch user name from FirebaseFirestore
+        DocumentSnapshot userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
+
+        if (userDoc.exists) {
+          setState(() {
+            firstName = userDoc['firstName'];
+          });
+        }
+      }
+    } catch (e) {
+      print("Error fetching name: $e");
+    }
+  }
+
+  Future<void> _requestLocationPermission(BuildContext context) async {
+    // Check the current permission status
+    PermissionStatus status = await Permission.location.status;
+
+    if (status.isGranted) {
+      // If permission is already granted, fetch location
+      Position position = await Geolocator.getCurrentPosition(
+        locationSettings: LocationSettings(
+          accuracy: LocationAccuracy.high, // Use LocationAccuracy directly
+          distanceFilter: 100,
+        ),
+      );
+
+      // Save the location to Firebase
+      _saveUserLocationToFirebase(position);
+    } else if (status.isDenied || status.isRestricted) {
+      // If permission is not granted, request permission
+      PermissionStatus requestedPermission =
+          await Permission.location.request();
+
+      // After the user responds to the permission dialog
+      if (requestedPermission.isGranted) {
+        // If the user grants permission, fetch the location
+        Position position = await Geolocator.getCurrentPosition(
+          locationSettings: LocationSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 100,
+          ),
+        );
+
+        // Save the location to Firebase
+        _saveUserLocationToFirebase(position);
+      } else {
+        // Handle permission denied case
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Location permission denied!')),
+        );
+      }
+    } else {
+      // If permission status is unknown or something else
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to get location permission!')),
+      );
+    }
+  }
+
+  Future<void> _saveUserLocationToFirebase(Position position) async {
+    try {
+      final userId =
+          FirebaseAuth.instance.currentUser?.uid; // Get the current user's ID
+      if (userId != null) {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId)
+            .update({
+          'location': {
+            'lat': position.latitude,
+            'lng': position.longitude,
+          }
+        });
+      }
+    } catch (e) {
+      print("Error saving location to Firebase: $e");
+    }
+  }
+
+  // Logout function
+  Future<void> _logout() async {
+    try {
+      await FirebaseAuth.instance.signOut();
+      Navigator.pushReplacementNamed(
+          context, '/login'); // Navigate to login page after logout
+    } catch (e) {
+      print("Error logging out: $e");
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Home Service Provider"),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: signUserOut, // Logout button in AppBar
-          ),
-        ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              "Available Services",
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 10),
-            Expanded(
-              child: ListView.builder(
-                itemCount: services.length,
-                itemBuilder: (context, index) {
-                  final service = services[index];
-                  return Card(
-                    child: ListTile(
-                      leading: Icon(
-                        service['icon'],
-                        color: service['color'],
-                      ),
-                      title: Text(service['title']),
-                      onTap: () {
-                        // Navigate to the respective page for the selected service
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => service['page'],
-                          ),
-                        );
-                      },
-                    ),
-                  );
-                },
+      appBar: AppBar(title: Text("Select a Service")),
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: <Widget>[
+            // User info header
+            UserAccountsDrawerHeader(
+              accountName: Text(firstName ?? 'Guest'),
+              accountEmail:
+                  Text(FirebaseAuth.instance.currentUser?.email ?? ''),
+              currentAccountPicture: CircleAvatar(
+                backgroundColor: Colors.white,
+                child: Icon(Icons.person, color: Colors.black),
               ),
+            ),
+            ListTile(
+              title: Text("Logout"),
+              onTap: () {
+                _logout();
+              },
             ),
           ],
         ),
+      ),
+      body: GridView.builder(
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          crossAxisSpacing: 10,
+          mainAxisSpacing: 10,
+        ),
+        itemCount: services.length,
+        itemBuilder: (context, index) {
+          return GestureDetector(
+            onTap: () {
+              // Navigate to providers list
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) =>
+                      ProvidersPage(serviceName: services[index]['name']!),
+                ),
+              );
+            },
+            child: Card(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(height: 10),
+                  Text(services[index]['name']!),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }
