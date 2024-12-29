@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart'; // Firebase Firestore
-import 'package:geolocator/geolocator.dart'; // Geolocation
+import 'package:geolocator/geolocator.dart';
+import 'package:service_app/pages/providerbooking_page.dart'; // Geolocation
 
 class ProvidersPage extends StatelessWidget {
   final String serviceName;
@@ -22,24 +23,33 @@ class ProvidersPage extends StatelessWidget {
       // Clear distances before recalculating
       providerDistances.clear();
 
-      return snapshot.docs.map((doc) {
-        final data = doc.data() as Map<String, dynamic>;
-        final providerLocation =
-            data['location']; // Example: {"lat": 28.6, "lng": 77.2}
+      return snapshot.docs
+          .map((doc) {
+            final data = doc.data() as Map<String, dynamic>;
+            final providerLocation =
+                data['location']; // Example: {"lat": 28.6, "lng": 77.2}
 
-        // Calculate the distance and store it in the global variable
-        final distance = Geolocator.distanceBetween(
-          userPosition.latitude,
-          userPosition.longitude,
-          providerLocation['lat'],
-          providerLocation['lng'],
-        );
+            // Calculate the distance and store it in the global variable
+            final distance = Geolocator.distanceBetween(
+              userPosition.latitude,
+              userPosition.longitude,
+              providerLocation['lat'],
+              providerLocation['lng'],
+            );
 
-        providerDistances[doc.id] = distance; // Store distance with provider ID
-
-        data['providerId'] = doc.id; // Add document ID for navigation
-        return data;
-      }).toList();
+            if (distance <= 10000) {
+              // Filter providers within 10 km
+              providerDistances[doc.id] =
+                  distance; // Store distance with provider ID
+              data['providerId'] = doc.id; // Add document ID for navigation
+              data['distance'] = distance; // Include distance for sorting
+              return data;
+            }
+            return null;
+          })
+          .where((provider) => provider != null) // Remove null entries
+          .map((provider) => provider!) // Safely cast to non-nullable
+          .toList();
     } catch (e) {
       print("Error fetching providers: $e");
       return [];
@@ -127,21 +137,6 @@ class ProvidersPage extends StatelessWidget {
           );
         },
       ),
-    );
-  }
-}
-
-// Mock ProviderProfilePage (replace with actual implementation)
-class ProviderProfilePage extends StatelessWidget {
-  final String providerId;
-
-  ProviderProfilePage({required this.providerId});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text("Provider Profile")),
-      body: Center(child: Text("Profile of provider $providerId")),
     );
   }
 }
